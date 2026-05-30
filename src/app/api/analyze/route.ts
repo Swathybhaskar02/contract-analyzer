@@ -1,8 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { baselineTemplates } from "@/lib/baseline-templates";
 import type { AnalysisResult, RiskLevel } from "@/lib/types";
+import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
+
+GlobalWorkerOptions.workerSrc = "";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+async function extractPdfText(buffer: Buffer): Promise<string> {
+  const uint8Array = new Uint8Array(buffer);
+  const pdf = await getDocument({ data: uint8Array, useSystemFonts: true }).promise;
+  
+  let fullText = "";
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items
+      .map((item: { str?: string }) => item.str || "")
+      .join(" ");
+    fullText += pageText + "\n";
+  }
+  
+  return fullText;
+}
 
 export const maxDuration = 60;
 
@@ -54,10 +74,7 @@ export async function POST(request: NextRequest) {
     let documentContent: string;
     
     if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const pdf = require("pdf-parse-fork");
-      const pdfData = await pdf(buffer);
-      documentContent = pdfData.text;
+      documentContent = await extractPdfText(buffer);
     } else if (file.type === "text/plain" || file.name.endsWith(".txt")) {
       documentContent = buffer.toString("utf-8");
     } else {
