@@ -7,9 +7,10 @@ import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { baselineTemplates } from "@/lib/baseline-templates";
 import { cn } from "@/lib/utils";
+import type { AnalysisResult } from "@/lib/types";
 
 interface FileUploadProps {
-  onAnalysisComplete: (result: unknown) => void;
+  onAnalysisComplete: (result: AnalysisResult) => void;
   onAnalysisStart: () => void;
 }
 
