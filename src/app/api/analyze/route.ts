@@ -24,8 +24,8 @@ export async function POST(request: NextRequest) {
     let documentContent: string;
     
     if (file.type === "application/pdf") {
-      const pdfParseModule = await import("pdf-parse");
-      const pdfParse = pdfParseModule.default || pdfParseModule;
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const pdfParse = require("pdf-parse");
       const pdfData = await pdfParse(buffer);
       documentContent = pdfData.text;
     } else if (file.type === "text/plain" || file.name.endsWith(".txt")) {
