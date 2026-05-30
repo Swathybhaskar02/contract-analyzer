@@ -1,36 +1,138 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ContractIQ - AI-Powered Contract & NDA Analysis System
+
+A modern web application that uses AI to analyze complex legal documents, identify non-standard clauses, liability risks, and obligations. Built for legal teams and paralegals to automate first-pass contract review.
+
+![ContractIQ](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind-4-38B2AC?style=flat-square&logo=tailwind-css)
+
+## Features
+
+- **PDF Document Upload**: Support for PDF and TXT files up to 50MB
+- **AI-Powered Analysis**: Uses GPT-4 to analyze contract clauses and identify risks
+- **Baseline Template Comparison**: Compare documents against standard templates (NDA, Service Agreement, Employment Contract, Software License)
+- **Risk Assessment**: Comprehensive risk scoring with high/medium/low classifications
+- **Key Findings Dashboard**: Organized view of non-standard clauses, liability risks, obligations, and more
+- **Deviation Detection**: Identify clauses that deviate from your company's standards
+- **Actionable Recommendations**: Get specific suggestions for legal team review
+- **Modern UI**: Beautiful, responsive interface with dark mode support
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
+- Node.js 18+ 
+- npm or yarn
+- OpenAI API key (optional - works with mock data without it)
+
+### Installation
+
+1. Clone the repository:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/yourusername/contract-analyzer.git
+cd contract-analyzer
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Install dependencies:
+```bash
+npm install
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Set up environment variables:
+```bash
+cp .env.example .env.local
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+4. Add your OpenAI API key to `.env.local`:
+```
+OPENAI_API_KEY=your_api_key_here
+```
 
-## Learn More
+5. Run the development server:
+```bash
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+6. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Usage
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. **Upload a Contract**: Click "Analyze a Contract" and upload a PDF or TXT file
+2. **Select Template**: Choose a baseline template to compare against
+3. **Review Results**: Explore the analysis including:
+   - Overall risk score
+   - Non-standard clauses
+   - Liability risks
+   - Obligations
+   - Termination clauses
+   - Deviations from standard templates
+   - Actionable recommendations
 
-## Deploy on Vercel
+## Tech Stack
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Framework**: Next.js 15 with App Router
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS 4
+- **UI Components**: Radix UI primitives
+- **PDF Processing**: pdf-parse
+- **AI**: OpenAI GPT-4 Turbo
+- **Icons**: Lucide React
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Project Structure
+
+```
+contract-analyzer/
+├── src/
+│   ├── app/
+│   │   ├── api/analyze/     # API route for document analysis
+│   │   ├── globals.css      # Global styles
+│   │   ├── layout.tsx       # Root layout
+│   │   └── page.tsx         # Main page
+│   ├── components/
+│   │   ├── ui/              # Reusable UI components
+│   │   ├── AnalysisResults.tsx
+│   │   ├── AnalyzingState.tsx
+│   │   ├── FileUpload.tsx
+│   │   └── Header.tsx
+│   └── lib/
+│       ├── analysis-prompts.ts  # LLM prompts
+│       ├── baseline-templates.ts # Standard templates
+│       ├── types.ts             # TypeScript types
+│       └── utils.ts             # Utility functions
+├── public/
+├── package.json
+└── README.md
+```
+
+## Deployment
+
+### Vercel (Recommended)
+
+1. Push your code to GitHub
+2. Import your repository in [Vercel](https://vercel.com)
+3. Add your `OPENAI_API_KEY` environment variable
+4. Deploy!
+
+### Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `OPENAI_API_KEY` | OpenAI API key for GPT-4 analysis | No (uses mock data if not provided) |
+
+## Demo Mode
+
+If no OpenAI API key is configured, the application runs in demo mode with mock analysis data. This is useful for testing the UI and understanding the application flow.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+MIT License - feel free to use this project for your own purposes.
+
+## Acknowledgments
+
+- Built with [Next.js](https://nextjs.org/)
+- UI components from [Radix UI](https://www.radix-ui.com/)
+- Icons from [Lucide](https://lucide.dev/)
