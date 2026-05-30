@@ -23,7 +23,7 @@ A modern web application that uses AI to analyze complex legal documents, identi
 
 - Node.js 18+ 
 - npm or yarn
-- OpenAI API key (optional - works with mock data without it)
+- Google Gemini API key (FREE - optional, works with mock data without it)
 
 ### Installation
 
@@ -43,9 +43,12 @@ npm install
 cp .env.example .env.local
 ```
 
-4. Add your OpenAI API key to `.env.local`:
+4. Get your FREE Gemini API key:
+   - Go to [Google AI Studio](https://aistudio.google.com/app/apikey)
+   - Click "Create API Key"
+   - Add it to `.env.local`:
 ```
-OPENAI_API_KEY=your_api_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
 5. Run the development server:
@@ -75,7 +78,7 @@ npm run dev
 - **Styling**: Tailwind CSS 4
 - **UI Components**: Radix UI primitives
 - **PDF Processing**: pdf-parse
-- **AI**: OpenAI GPT-4 Turbo
+- **AI**: Google Gemini 1.5 Flash (FREE tier)
 - **Icons**: Lucide React
 
 ## Project Structure
@@ -117,11 +120,20 @@ contract-analyzer/
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `OPENAI_API_KEY` | OpenAI API key for GPT-4 analysis | No (uses mock data if not provided) |
+| `GEMINI_API_KEY` | Google Gemini API key (FREE!) | No (uses mock data if not provided) |
+
+## Free AI with Google Gemini
+
+This app uses **Google Gemini 1.5 Flash** which has a generous free tier:
+- **15 requests per minute**
+- **1 million tokens per minute**
+- **1,500 requests per day**
+
+Get your free API key at [Google AI Studio](https://aistudio.google.com/app/apikey).
 
 ## Demo Mode
 
-If no OpenAI API key is configured, the application runs in demo mode with mock analysis data. This is useful for testing the UI and understanding the application flow.
+If no Gemini API key is configured, the application runs in demo mode with mock analysis data. This is useful for testing the UI and understanding the application flow.
 
 ## Contributing
 
