@@ -83,7 +83,7 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
   });
 }
 
-async function analyzeWithVision(base64Data: string, mimeType: string): Promise<AnalysisResult | null> {
+async function analyzeWithVision(base64Data: string, mimeType: string): Promise<Partial<AnalysisResult> | null> {
   if (!GEMINI_API_KEY) return null;
   
   try {
@@ -170,7 +170,7 @@ async function analyzeWithVision(base64Data: string, mimeType: string): Promise<
         return "medium";
       };
       
-      // Return a basic parsed result with what we could extract
+      // Return a partial result - the POST handler will add missing fields
       return {
         documentType: extractField("documentType") || "Contract Document",
         summary: extractField("summary") || "Document analyzed via OCR. The AI successfully read the document content.",
@@ -192,7 +192,7 @@ async function analyzeWithVision(base64Data: string, mimeType: string): Promise<
           "OCR analysis completed - review document for accuracy",
           "Consider uploading a text-based PDF for more detailed analysis"
         ]
-      };
+      } as Partial<AnalysisResult>;
     }
   } catch (error) {
     console.error("Vision analysis error:", error);
