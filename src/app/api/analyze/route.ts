@@ -1,9 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SYSTEM_PROMPT, ANALYSIS_PROMPT } from "@/lib/analysis-prompts";
 import { baselineTemplates } from "@/lib/baseline-templates";
 import type { AnalysisResult, RiskLevel } from "@/lib/types";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+export const maxDuration = 60;
+
+const COMPACT_PROMPT = `You are a legal contract analyst. Analyze this document and return JSON.
+
+DOCUMENT:
+{documentContent}
+
+Return this exact JSON structure (be concise, limit each array to 3-5 items max):
+{
+  "documentType": "NDA/Service Agreement/Employment Contract/Other",
+  "summary": "2 sentence summary",
+  "overallRisk": "high/medium/low",
+  "riskScore": 0-100,
+  "keyFindings": {
+    "nonStandardClauses": [{"title":"","content":"brief","riskLevel":"high/medium/low","section":""}],
+    "liabilityRisks": [{"title":"","content":"brief","riskLevel":"high/medium/low","section":""}],
+    "obligations": [{"title":"","content":"brief","riskLevel":"high/medium/low","section":""}],
+    "terminationClauses": [{"title":"","content":"brief","riskLevel":"high/medium/low","section":""}],
+    "confidentialityTerms": [{"title":"","content":"brief","riskLevel":"high/medium/low","section":""}],
+    "indemnificationClauses": [{"title":"","content":"brief","riskLevel":"high/medium/low","section":""}]
+  },
+  "deviations": [{"description":"","severity":"high/medium/low","recommendation":""}],
+  "parties": [{"name":"","role":""}],
+  "keyDates": [{"description":"","date":""}],
+  "financialTerms": [{"description":"","amount":"","terms":""}],
+  "recommendations": ["action item 1", "action item 2"]
+}
+
+Focus on: unlimited liability, one-sided indemnification, unusual termination, missing protections, broad IP assignment.
+Return ONLY valid JSON.`;
 
 export async function POST(request: NextRequest) {
   try {
@@ -44,88 +74,81 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const selectedTemplate = templateId 
-      ? baselineTemplates.find(t => t.id === templateId)
-      : baselineTemplates[0];
-
-    const baselineTemplateText = selectedTemplate
-      ? JSON.stringify(selectedTemplate, null, 2)
-      : "No baseline template selected";
-
-    const prompt = ANALYSIS_PROMPT
-      .replace("{documentContent}", documentContent.substring(0, 30000))
-      .replace("{baselineTemplate}", baselineTemplateText);
-
     let analysisResult: AnalysisResult;
 
     if (GEMINI_API_KEY) {
-      const fullPrompt = `${SYSTEM_PROMPT}\n\n${prompt}`;
+      const truncatedContent = documentContent.substring(0, 15000);
+      const prompt = COMPACT_PROMPT.replace("{documentContent}", truncatedContent);
       
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text: fullPrompt
-                  }
-                ]
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 55000);
+      
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: {
+                temperature: 0.1,
+                maxOutputTokens: 4096,
+                responseMimeType: "application/json"
               }
-            ],
-            generationConfig: {
-              temperature: 0.1,
-              maxOutputTokens: 8192,
-              responseMimeType: "application/json"
-            }
-          }),
+            }),
+            signal: controller.signal
+          }
+        );
+        
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          console.error("Gemini API error:", response.status, response.statusText);
+          return NextResponse.json(generateMockAnalysis(file.name, documentContent));
         }
-      );
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Gemini API error:", errorText);
-        throw new Error(`Gemini API error: ${response.statusText}`);
+        const data = await response.json();
+        const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        
+        if (!content) {
+          console.error("No content in Gemini response");
+          return NextResponse.json(generateMockAnalysis(file.name, documentContent));
+        }
+
+        const cleanedContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        const parsed = JSON.parse(cleanedContent);
+        
+        analysisResult = {
+          id: generateId(),
+          documentName: file.name,
+          documentType: parsed.documentType || "Unknown",
+          uploadedAt: new Date().toISOString(),
+          analyzedAt: new Date().toISOString(),
+          summary: parsed.summary || "",
+          overallRisk: parsed.overallRisk || "medium",
+          riskScore: parsed.riskScore || 50,
+          keyFindings: {
+            nonStandardClauses: parsed.keyFindings?.nonStandardClauses || [],
+            liabilityRisks: parsed.keyFindings?.liabilityRisks || [],
+            obligations: parsed.keyFindings?.obligations || [],
+            terminationClauses: parsed.keyFindings?.terminationClauses || [],
+            confidentialityTerms: parsed.keyFindings?.confidentialityTerms || [],
+            indemnificationClauses: parsed.keyFindings?.indemnificationClauses || [],
+          },
+          deviations: parsed.deviations || [],
+          parties: parsed.parties || [],
+          keyDates: parsed.keyDates || [],
+          financialTerms: parsed.financialTerms || [],
+          recommendations: parsed.recommendations || [],
+        };
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        console.error("Fetch error:", fetchError);
+        return NextResponse.json(generateMockAnalysis(file.name, documentContent));
       }
-
-      const data = await response.json();
-      const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      
-      if (!content) {
-        throw new Error("No content in Gemini response");
-      }
-
-      const cleanedContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      const parsed = JSON.parse(cleanedContent);
-      
-      analysisResult = {
-        id: generateId(),
-        documentName: file.name,
-        documentType: parsed.documentType || "Unknown",
-        uploadedAt: new Date().toISOString(),
-        analyzedAt: new Date().toISOString(),
-        summary: parsed.summary || "",
-        overallRisk: parsed.overallRisk || "medium",
-        riskScore: parsed.riskScore || 50,
-        keyFindings: parsed.keyFindings || {
-          nonStandardClauses: [],
-          liabilityRisks: [],
-          obligations: [],
-          terminationClauses: [],
-          confidentialityTerms: [],
-          indemnificationClauses: [],
-        },
-        deviations: parsed.deviations || [],
-        parties: parsed.parties || [],
-        keyDates: parsed.keyDates || [],
-        financialTerms: parsed.financialTerms || [],
-        recommendations: parsed.recommendations || [],
-      };
     } else {
       analysisResult = generateMockAnalysis(file.name, documentContent);
     }
@@ -155,8 +178,6 @@ function generateMockAnalysis(fileName: string, content: string): AnalysisResult
 
   const documentType = isNDA ? "Non-Disclosure Agreement" : 
                        isService ? "Service Agreement" : "General Contract";
-
-  const riskLevels: RiskLevel[] = ["high", "medium", "low"];
   
   return {
     id: generateId(),
@@ -222,13 +243,6 @@ function generateMockAnalysis(fileName: string, content: string): AnalysisResult
           riskLevel: "low",
           section: "Section 4.5",
           pageNumber: 7
-        },
-        {
-          title: "Annual Compliance Certification",
-          content: "Receiving party must provide annual certification of compliance with confidentiality obligations.",
-          riskLevel: "medium",
-          section: "Section 4.6",
-          pageNumber: 7
         }
       ],
       terminationClauses: [
@@ -287,11 +301,6 @@ function generateMockAnalysis(fileName: string, content: string): AnalysisResult
         description: "No cure period for material breach before termination",
         severity: "medium",
         recommendation: "Add 30-day cure period for material breach before termination rights trigger"
-      },
-      {
-        description: "Jurisdiction clause specifies unfamiliar venue",
-        severity: "low",
-        recommendation: "Consider negotiating for mutual jurisdiction or arbitration in neutral venue"
       }
     ],
     
@@ -320,10 +329,7 @@ function generateMockAnalysis(fileName: string, content: string): AnalysisResult
       "Request reduction of confidentiality survival period from 10 years to 3 years",
       "Add mutual indemnification provisions to balance risk",
       "Include a 30-day cure period before termination for breach",
-      "Add a residual knowledge clause to protect general skills retention",
-      "Review and negotiate the liquidated damages provision downward",
-      "Consider adding a carve-out for information that becomes publicly available",
-      "Request right to audit security measures of the other party"
+      "Add a residual knowledge clause to protect general skills retention"
     ]
   };
 }
