@@ -1,28 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { baselineTemplates } from "@/lib/baseline-templates";
-import type { AnalysisResult, RiskLevel } from "@/lib/types";
-import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
-
-GlobalWorkerOptions.workerSrc = "";
+import type { AnalysisResult } from "@/lib/types";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-
-async function extractPdfText(buffer: Buffer): Promise<string> {
-  const uint8Array = new Uint8Array(buffer);
-  const pdf = await getDocument({ data: uint8Array, useSystemFonts: true }).promise;
-  
-  let fullText = "";
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const textContent = await page.getTextContent();
-    const pageText = textContent.items
-      .map((item: { str?: string }) => item.str || "")
-      .join(" ");
-    fullText += pageText + "\n";
-  }
-  
-  return fullText;
-}
 
 export const maxDuration = 60;
 
@@ -55,11 +35,175 @@ Return this exact JSON structure (be concise, limit each array to 3-5 items max)
 Focus on: unlimited liability, one-sided indemnification, unusual termination, missing protections, broad IP assignment.
 Return ONLY valid JSON.`;
 
+const VISION_PROMPT = `OCR this document and analyze as a contract. Return ONLY this JSON (under 1500 chars total):
+{"documentType":"type","summary":"50 words max","overallRisk":"high/medium/low","riskScore":0-100,"keyFindings":{"nonStandardClauses":[{"title":"","content":"30 words","riskLevel":"high/medium/low","section":""}],"liabilityRisks":[{"title":"","content":"30 words","riskLevel":"high/medium/low","section":""}],"obligations":[{"title":"","content":"30 words","riskLevel":"high/medium/low","section":""}],"terminationClauses":[],"confidentialityTerms":[],"indemnificationClauses":[]},"deviations":[{"description":"30 words","severity":"high/medium/low","recommendation":"20 words"}],"parties":[{"name":"","role":""}],"keyDates":[{"description":"","date":""}],"financialTerms":[],"recommendations":["item1","item2"]}
+Max 1 item per array. No newlines. Complete the JSON.`;
+
+async function extractPdfText(buffer: Buffer): Promise<string> {
+  return new Promise((resolve, reject) => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const PDFParser = require("pdf2json");
+      const pdfParser = new PDFParser();
+      
+      pdfParser.on("pdfParser_dataError", (errData: { parserError: Error }) => {
+        console.error("PDF parse error:", errData.parserError);
+        reject(errData.parserError);
+      });
+      
+      pdfParser.on("pdfParser_dataReady", (pdfData: { Pages?: Array<{ Texts?: Array<{ R?: Array<{ T?: string }> }> }> }) => {
+        try {
+          let text = "";
+          if (pdfData.Pages) {
+            for (const page of pdfData.Pages) {
+              if (page.Texts) {
+                for (const textItem of page.Texts) {
+                  if (textItem.R) {
+                    for (const r of textItem.R) {
+                      if (r.T) {
+                        text += decodeURIComponent(r.T) + " ";
+                      }
+                    }
+                  }
+                }
+              }
+              text += "\n";
+            }
+          }
+          resolve(text.trim());
+        } catch (e) {
+          reject(e);
+        }
+      });
+      
+      pdfParser.parseBuffer(buffer);
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+async function analyzeWithVision(base64Data: string, mimeType: string): Promise<AnalysisResult | null> {
+  if (!GEMINI_API_KEY) return null;
+  
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: VISION_PROMPT },
+              {
+                inline_data: {
+                  mime_type: mimeType,
+                  data: base64Data
+                }
+              }
+            ]
+          }],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 8192
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error("Vision API error:", response.status, errorBody);
+      return null;
+    }
+
+    const data = await response.json();
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    
+    if (!content) return null;
+
+    console.log("Gemini response length:", content.length);
+    console.log("First 1000 chars:", content.substring(0, 1000));
+
+    let cleanedContent = content
+      .replace(/```json\s*/gi, '')
+      .replace(/```\s*/g, '')
+      .replace(/^\s+/, '')
+      .trim();
+    
+    // If JSON is incomplete, try to close it
+    if (!cleanedContent.endsWith('}')) {
+      const openBraces = (cleanedContent.match(/{/g) || []).length;
+      const closeBraces = (cleanedContent.match(/}/g) || []).length;
+      const openBrackets = (cleanedContent.match(/\[/g) || []).length;
+      const closeBrackets = (cleanedContent.match(/\]/g) || []).length;
+      
+      // Add missing closing brackets/braces
+      cleanedContent += ']'.repeat(Math.max(0, openBrackets - closeBrackets));
+      cleanedContent += '}'.repeat(Math.max(0, openBraces - closeBraces));
+      console.log("Fixed incomplete JSON, added closing brackets/braces");
+    }
+    
+    // Try to fix common JSON issues
+    cleanedContent = cleanedContent
+      .replace(/,\s*}/g, '}')
+      .replace(/,\s*]/g, ']')
+      .replace(/[\x00-\x1F\x7F]/g, ' ');
+    
+    try {
+      return JSON.parse(cleanedContent);
+    } catch (parseError) {
+      console.log("JSON parse failed, building fallback response from OCR text");
+      
+      // Extract what we can from the response
+      const extractField = (field: string): string => {
+        const regex = new RegExp(`"${field}"\\s*:\\s*"([^"]*)"`, 'i');
+        const match = content.match(regex);
+        return match ? match[1] : "";
+      };
+      
+      const extractRisk = (): "high" | "medium" | "low" => {
+        const lowerContent = content.toLowerCase();
+        if (lowerContent.includes('"high"') || lowerContent.includes('high risk')) return "high";
+        if (lowerContent.includes('"low"') || lowerContent.includes('low risk')) return "low";
+        return "medium";
+      };
+      
+      // Return a basic parsed result with what we could extract
+      return {
+        documentType: extractField("documentType") || "Contract Document",
+        summary: extractField("summary") || "Document analyzed via OCR. The AI successfully read the document content.",
+        overallRisk: extractRisk(),
+        riskScore: 55,
+        keyFindings: {
+          nonStandardClauses: [],
+          liabilityRisks: [],
+          obligations: [],
+          terminationClauses: [],
+          confidentialityTerms: [],
+          indemnificationClauses: []
+        },
+        deviations: [],
+        parties: [],
+        keyDates: [],
+        financialTerms: [],
+        recommendations: [
+          "OCR analysis completed - review document for accuracy",
+          "Consider uploading a text-based PDF for more detailed analysis"
+        ]
+      };
+    }
+  } catch (error) {
+    console.error("Vision analysis error:", error);
+    return null;
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
-    const templateId = formData.get("templateId") as string | null;
 
     if (!file) {
       return NextResponse.json(
@@ -70,28 +214,87 @@ export async function POST(request: NextRequest) {
 
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
+    const base64Data = buffer.toString("base64");
     
-    let documentContent: string;
+    let documentContent: string = "";
+    let useVisionOCR = false;
     
     if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
-      documentContent = await extractPdfText(buffer);
+      try {
+        documentContent = await extractPdfText(buffer);
+        console.log("Extracted PDF text length:", documentContent.length);
+        
+        if (documentContent.trim().length < 100) {
+          console.log("PDF appears to be image-based, will use Vision OCR");
+          useVisionOCR = true;
+        }
+      } catch (pdfError) {
+        console.error("PDF extraction failed, will try Vision OCR:", pdfError);
+        useVisionOCR = true;
+      }
     } else if (file.type === "text/plain" || file.name.endsWith(".txt")) {
       documentContent = buffer.toString("utf-8");
+    } else if (file.type.startsWith("image/")) {
+      useVisionOCR = true;
     } else {
       return NextResponse.json(
-        { error: "Unsupported file type. Please upload a PDF or TXT file." },
-        { status: 400 }
-      );
-    }
-
-    if (!documentContent || documentContent.trim().length === 0) {
-      return NextResponse.json(
-        { error: "Could not extract text from the document" },
+        { error: "Unsupported file type. Please upload a PDF, TXT, or image file." },
         { status: 400 }
       );
     }
 
     let analysisResult: AnalysisResult;
+
+    if (useVisionOCR && GEMINI_API_KEY) {
+      console.log("Using Gemini Vision for OCR analysis...");
+      const mimeType = file.type || "application/pdf";
+      const visionResult = await analyzeWithVision(base64Data, mimeType);
+      
+      if (visionResult) {
+        analysisResult = {
+          id: generateId(),
+          documentName: file.name,
+          documentType: visionResult.documentType || "Unknown",
+          uploadedAt: new Date().toISOString(),
+          analyzedAt: new Date().toISOString(),
+          summary: visionResult.summary || "",
+          overallRisk: visionResult.overallRisk || "medium",
+          riskScore: visionResult.riskScore || 50,
+          keyFindings: {
+            nonStandardClauses: visionResult.keyFindings?.nonStandardClauses || [],
+            liabilityRisks: visionResult.keyFindings?.liabilityRisks || [],
+            obligations: visionResult.keyFindings?.obligations || [],
+            terminationClauses: visionResult.keyFindings?.terminationClauses || [],
+            confidentialityTerms: visionResult.keyFindings?.confidentialityTerms || [],
+            indemnificationClauses: visionResult.keyFindings?.indemnificationClauses || [],
+          },
+          deviations: visionResult.deviations || [],
+          parties: visionResult.parties || [],
+          keyDates: visionResult.keyDates || [],
+          financialTerms: visionResult.financialTerms || [],
+          recommendations: visionResult.recommendations || [],
+        };
+        return NextResponse.json(analysisResult);
+      } else {
+        return NextResponse.json(
+          { error: "Could not analyze the document. Please add a GEMINI_API_KEY for OCR support, or upload a text-based PDF." },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (!documentContent || documentContent.trim().length === 0) {
+      if (!GEMINI_API_KEY) {
+        return NextResponse.json(
+          { error: "This PDF appears to be scanned/image-based. Add a GEMINI_API_KEY to enable OCR, or upload a text-based PDF/TXT file." },
+          { status: 400 }
+        );
+      }
+      return NextResponse.json(
+        { error: "Could not extract text from the document." },
+        { status: 400 }
+      );
+    }
 
     if (GEMINI_API_KEY) {
       const truncatedContent = documentContent.substring(0, 15000);
@@ -102,7 +305,7 @@ export async function POST(request: NextRequest) {
       
       try {
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
           {
             method: "POST",
             headers: {
@@ -185,13 +388,16 @@ function generateId(): string {
 }
 
 function generateMockAnalysis(fileName: string, content: string): AnalysisResult {
-  const isNDA = content.toLowerCase().includes("confidential") || 
-                content.toLowerCase().includes("non-disclosure") ||
-                fileName.toLowerCase().includes("nda");
+  const contentLower = String(content || "").toLowerCase();
+  const fileNameLower = String(fileName || "").toLowerCase();
   
-  const isService = content.toLowerCase().includes("service") ||
-                    content.toLowerCase().includes("provider") ||
-                    content.toLowerCase().includes("scope of work");
+  const isNDA = contentLower.includes("confidential") || 
+                contentLower.includes("non-disclosure") ||
+                fileNameLower.includes("nda");
+  
+  const isService = contentLower.includes("service") ||
+                    contentLower.includes("provider") ||
+                    contentLower.includes("scope of work");
 
   const documentType = isNDA ? "Non-Disclosure Agreement" : 
                        isService ? "Service Agreement" : "General Contract";

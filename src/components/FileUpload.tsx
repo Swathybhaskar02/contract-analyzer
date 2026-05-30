@@ -43,8 +43,8 @@ export function FileUpload({ onAnalysisComplete, onAnalysisStart }: FileUploadPr
   }, []);
 
   const validateAndSetFile = (file: File) => {
-    const validTypes = ["application/pdf", "text/plain"];
-    const validExtensions = [".pdf", ".txt"];
+    const validTypes = ["application/pdf", "text/plain", "image/png", "image/jpeg", "image/jpg", "image/webp"];
+    const validExtensions = [".pdf", ".txt", ".png", ".jpg", ".jpeg", ".webp"];
     
     const hasValidType = validTypes.includes(file.type);
     const hasValidExtension = validExtensions.some(ext => 
@@ -52,7 +52,7 @@ export function FileUpload({ onAnalysisComplete, onAnalysisStart }: FileUploadPr
     );
     
     if (!hasValidType && !hasValidExtension) {
-      setError("Please upload a PDF or TXT file");
+      setError("Please upload a PDF, TXT, or image file (PNG, JPG)");
       return;
     }
     
@@ -140,7 +140,7 @@ export function FileUpload({ onAnalysisComplete, onAnalysisStart }: FileUploadPr
           <input
             id="file-input"
             type="file"
-            accept=".pdf,.txt,application/pdf,text/plain"
+            accept=".pdf,.txt,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,image/*"
             onChange={handleFileChange}
             className="hidden"
           />
@@ -179,7 +179,7 @@ export function FileUpload({ onAnalysisComplete, onAnalysisStart }: FileUploadPr
                   Drop your contract here or click to browse
                 </p>
                 <p className="text-sm text-[var(--muted-foreground)]">
-                  Supports PDF and TXT files up to 50MB
+                  Supports PDF, TXT, and images (with OCR) up to 50MB
                 </p>
               </div>
             </div>
