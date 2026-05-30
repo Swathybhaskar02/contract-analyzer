@@ -53,10 +53,10 @@ export async function POST(request: NextRequest) {
     
     let documentContent: string;
     
-    if (file.type === "application/pdf") {
+    if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const pdfParse = require("pdf-parse");
-      const pdfData = await pdfParse(buffer);
+      const pdf = require("pdf-parse-fork");
+      const pdfData = await pdf(buffer);
       documentContent = pdfData.text;
     } else if (file.type === "text/plain" || file.name.endsWith(".txt")) {
       documentContent = buffer.toString("utf-8");
