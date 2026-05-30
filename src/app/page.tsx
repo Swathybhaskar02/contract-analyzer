@@ -45,7 +45,10 @@ export default function Home() {
                 
                 <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold mb-6 leading-tight">
                   Analyze Complex Contracts
-                  <span className="block text-transparent bg-clip-text gradient-bg">
+                  <span 
+                    className="block bg-clip-text text-transparent"
+                    style={{ backgroundImage: "linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #06b6d4 100%)" }}
+                  >
                     in Seconds, Not Hours
                   </span>
                 </h1>
